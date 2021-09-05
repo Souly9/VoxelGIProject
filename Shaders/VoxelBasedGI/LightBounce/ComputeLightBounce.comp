@@ -1,0 +1,42 @@
+#version 440 core
+#extension GL_ARB_shading_language_include : require
+
+layout(local_size_x = 32, local_size_y = 32, local_size_z = 1) in;
+layout(rgba16f, binding = 2) uniform image3D firstBounceImg;
+uniform sampler3D color3DTex;
+uniform sampler3D normal3DTex;
+
+#include "/Globals.glsl"
+#include "/ConeTracingGlobals.glsl"
+#include "/ConeTracingFunctions.glsl"
+#include "/PBRFunctions.glsl"
+
+void main()
+{
+	ivec3 voxelSpacePos = ivec3(gl_GlobalInvocationID.x, 
+								gl_GlobalInvocationID.y,
+								gl_GlobalInvocationID.z);
+	
+	vec3 worldSpacePos = VoxelToWorld(voxelSpacePos);
+
+	// Texelfetch is per texel operation, hence we don't need them bound as images
+	vec4 color = texelFetch(color3DTex, voxelSpacePos, 0);
+
+	vec4 readNo = texelFetch(normal3DTex, voxelSpacePos, 0);
+	vec3 normal = readNo.xyz;
+	vec3 col = vec3(0);
+
+	// Run diffuse cone tracing if there's a not null voxel
+	if(color.a > 0.1f)
+	{
+		col.xyz += coneWeights[0] * traceDiffuseCone(color3DTex, worldSpacePos, normal, normal, 
+		VoxelUniforms.VoxelSize, (ConeTraceData.showGI.w)).xyz;
+		for(int i = 1; i < 6; ++i)
+		{
+			vec3 sphereVec = ConeTraceData.randomUnitPoints[i].xyz;
+			col.xyz += coneWeights[i] * traceDiffuseCone(color3DTex, worldSpacePos, normal, sphereVec, 
+				VoxelUniforms.VoxelSize, (ConeTraceData.showGI.w)).xyz;
+		}
+		imageStore(firstBounceImg, voxelSpacePos, vec4(col, color.a));
+	}
+}
